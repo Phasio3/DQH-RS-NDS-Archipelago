@@ -12,11 +12,16 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from worlds._bizhawk.context import BizHawkClientContext
 
+from NetUtils import ClientStatus
+
 from .locations import SLIME_ID_TO_LOCATION_ID
 from .locations import MONSTER_ID_TO_LOCATION_ID
 from .locations import LOCATION_TABLE
+from .locations import FINAL_BOSS_LOCATION_ID, SLIME_LOCATION_IDS
+from .locations import TANK_ID_TO_LOCATION_ID
 from .items import BASE_ID
 from .randomizer import TankAmmoRandomizer
+from .options import Goal
 
 # ── Constants still pending real research (see CHECKLIST.md §6) ────────────────
 AP_ITEM_INDEX_ADDR = 0x00001890    
@@ -28,6 +33,12 @@ ROOM_ID_ADDR = 0x0013B068
 MONSTER_ID_ADDR_BEGIN = 0x00214260
 MONSTER_ID_ADDR_END = 0x002142BF
 TANK_BATTLE_FLAG_ADDR = 0x0013B487
+PLAYER_HP_ADDR = 0x00143BD8
+
+# ── tank battle ──────────────────────────────────────────────────────────
+TANK_BATTLE_ID_ADDR = 0x0013AED8        # 01-24 (hex) selon le combat ; ne repasse jamais à 00
+TANK_EXPLOSION_ANIM_ADDR = 0x0013B5B4   # passe à 02 à la fin de l'explosion du tank adverse
+TANK_EXPLOSION_DONE_VALUE = 0x02
 
 # ── Bestiary table ──────────────────────────────────────────────────────────
 # Chaque monstre occupe une entrée de 4 octets consécutifs :
@@ -216,6 +227,7 @@ class DQHRSClient(BizHawkClient):
         self._last_anim: int | None = None
         self._ticks_since_anim_change = MINIMAP_ACTIVITY_TICKS  # "inactif" au départ
         self.tank_ammo = TankAmmoRandomizer()
+        self._prev_tank_explosion_anim = 0x00
         pass
 
     async def validate_rom(self, ctx: BizHawkClientContext) -> bool:
@@ -396,6 +408,63 @@ class DQHRSClient(BizHawkClient):
             ])
             break
 
+    async def _check_goal(self, ctx: BizHawkClientContext, new_checks: set[int]) -> None:
+        """Envoie CLIENT_GOAL au serveur quand l'objectif choisi est accompli."""
+        if ctx.finished_game:
+            return
+        goal = (ctx.slot_data or {}).get("goal")   # envoyé par fill_slot_data
+        if goal is None:
+            return
+
+        done = ctx.checked_locations | new_checks  # déjà validées + celles du tick en cours
+        if goal == Goal.option_defeat_final_boss:
+            reached = FINAL_BOSS_LOCATION_ID in done
+        elif goal == Goal.option_save_all_slimes:
+            reached = SLIME_LOCATION_IDS <= done   # "<=" : sous-ensemble
+        else:
+            return
+
+        if reached:
+            await ctx.send_msgs([{"cmd": "StatusUpdate", "status": ClientStatus.CLIENT_GOAL}])
+            ctx.finished_game = True
+
+    async def apply_low_hp_trap(self, ctx: BizHawkClientContext) -> None:
+        await bizhawk.write(ctx.bizhawk_ctx, PLAYER_HP_ADDR, bytes([0x01]), "Main RAM")
+
+    async def _handle_tank_battle_checks(self, ctx: "BizHawkClientContext") -> set[int]:
+        """Détecte la fin d'un combat de tank via le front montant (00 -> 02) de
+        l'animation d'explosion, puis renvoie l'ID de location AP correspondant.
+
+        On ne réagit qu'au CHANGEMENT de valeur, jamais à la valeur seule : sinon
+        le même combat déclencherait un check à chaque tick où l'anim reste à 02.
+        """
+        try:
+            anim_byte, tank_id_byte = await bizhawk.read(ctx.bizhawk_ctx, [
+                (TANK_EXPLOSION_ANIM_ADDR, 1, "Main RAM"),
+                (TANK_BATTLE_ID_ADDR, 1, "Main RAM"),
+            ])
+        except bizhawk.RequestFailedError:
+            return set()
+
+        anim = anim_byte[0]
+        tank_id = tank_id_byte[0]
+
+        rising_edge = (self._prev_tank_explosion_anim == 0x00 and anim == TANK_EXPLOSION_DONE_VALUE)
+        self._prev_tank_explosion_anim = anim  # toujours mettre à jour, même si pas de front
+
+        #print(f"DEBUG: _handle_tank_battle_checks: tank_id={tank_id} anim={anim:02X} rising_edge={rising_edge}")
+
+        if not rising_edge:
+            return set()
+
+        location_ap_id = TANK_ID_TO_LOCATION_ID.get(tank_id)
+        if location_ap_id is None or location_ap_id in ctx.checked_locations:
+            return set()
+        
+        #print(f"DEBUG: Tank battle finished, sending check for tank_id={tank_id} location_ap_id={location_ap_id}")
+
+        return {location_ap_id}
+
     async def game_watcher(self, ctx: BizHawkClientContext) -> None:
         if ctx.server is None or ctx.slot is None:
             return  # not connected to the AP server/slot yet
@@ -470,6 +539,9 @@ class DQHRSClient(BizHawkClient):
         except bizhawk.RequestFailedError:
             return  # connector didn't respond, will retry next loop
 
+        # ── Tank Battle ─────────────────────────────────────────────────────────
+        new_checks |= await self._handle_tank_battle_checks(ctx)
+
         # ── Bestiaire : un check par monstre dont le statut n'est plus 0x00 ─────
         for monster_id in range(MONSTER_COUNT):
             status = unlocked_monsters[monster_id * MONSTER_ENTRY_SIZE]
@@ -479,10 +551,12 @@ class DQHRSClient(BizHawkClient):
             location_ap_id = MONSTER_ID_TO_LOCATION_ID.get(monster_id)
             if location_ap_id is not None and location_ap_id not in ctx.checked_locations:
                 new_checks.add(location_ap_id)
-            print(f"DEBUG: monster_id={monster_id} status={status:02X} location_ap_id={location_ap_id} new_check={location_ap_id not in ctx.checked_locations}")
-            print(f"DEBUG: {MONSTER_ID_TO_LOCATION_ID}")
+            #print(f"DEBUG: monster_id={monster_id} status={status:02X} location_ap_id={location_ap_id} new_check={location_ap_id not in ctx.checked_locations}")
+            #print(f"DEBUG: {MONSTER_ID_TO_LOCATION_ID}")
         if new_checks:
             await ctx.send_msgs([{"cmd": "LocationChecks", "locations": list(new_checks)}])
+
+        await self._check_goal(ctx, new_checks)
 
         # ── 3. Item delivery + goal detection ───────────────────────────────────
         
@@ -505,6 +579,9 @@ class DQHRSClient(BizHawkClient):
                 new_gold = current_gold + 100
                 await bizhawk.write(ctx.bizhawk_ctx, [(GOLD_COUNTER_ADDR, new_gold.to_bytes(4, byteorder="little"), "Main RAM")])
             
+            elif item_name == "Low HP Trap":
+                await self.apply_low_hp_trap(ctx)
+
             # Enregistrement des items Unlocked
             if item_name in UNLOCKED_ITEMS_ADDRS:
                 self.unlocked_items_received.add(item_name)

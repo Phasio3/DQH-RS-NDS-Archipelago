@@ -10,24 +10,13 @@
 #   4. set_rules()        → attach access rules to entrances and locations
 #   5. generate_output()  → optional; write a patch file or data bundle
 #   6. fill_slot_data()   → return data the client needs after connecting
-#
-# The World class must set:
-#   game              → the exact string that identifies this world
-#   options_dataclass → the Options dataclass from options.py
-#   web               → a WebWorld instance with documentation wiring
-#   base_id           → the numeric offset shared by all item/location IDs
-#   item_name_to_id   → dict of item name → numeric ID
-#   location_name_to_id → dict of location name → numeric ID
-#
-# TODO: fill in all TODO markers.
-# TODO: import client.py so BizHawk auto-registers when this world loads.
 
 from worlds.AutoWorld import World, WebWorld
 from BaseClasses import Item, ItemClassification, Region, Location, Tutorial
 
 from .items    import ITEM_TABLE, ITEM_NAME_TO_ID, BASE_ID, DQHRSItemData
 from .locations import LOCATION_TABLE, LOCATION_NAME_TO_ID, ALL_REGIONS
-from .options  import DQHRSOptions
+from .options  import DQHRSOptions, Goal
 from .rules    import set_rules as _set_rules
 from .settings import DQHRSSettings
 
@@ -35,12 +24,10 @@ from .settings import DQHRSSettings
 from . import client  # noqa: F401
 
 from typing import ClassVar
-import os
 
 
 # ── Web documentation ──────────────────────────────────────────────────────────
 class DQHRSWebWorld(WebWorld):
-    # TODO: write the actual doc files and update these paths.
     theme = "ocean"
     tutorials = [
         Tutorial(
@@ -55,7 +42,6 @@ class DQHRSWebWorld(WebWorld):
 
 
 # ── Item class ─────────────────────────────────────────────────────────────────
-# A thin subclass so AP can identify items as belonging to this world.
 class DQHRSItem(Item):
     game = "dqh_rs"
 
@@ -74,41 +60,24 @@ class DQHRSWorld(World):
 
     game              = "dqh_rs"
     options_dataclass = DQHRSOptions
+    options: DQHRSOptions
     web               = DQHRSWebWorld()
     base_id           = BASE_ID
 
     item_name_to_id     = ITEM_NAME_TO_ID
     location_name_to_id = LOCATION_NAME_TO_ID
 
+    # A "name group" lets rules (and players' YAML) talk about a set of items at once.
+    # Here: state.has_group("Slimes", player, 100) = "I own 100 slimes".
+    item_name_groups = {
+        "Slimes": {name for name in ITEM_TABLE if name.startswith("Slime_")},
+    }
+
     settings: ClassVar[DQHRSSettings]
-
-    # ── generate_early ─────────────────────────────────────────────────────────
-    def generate_early(self) -> None:
-        """Run before region graph is built.
-
-        Use this if you need to compute derived properties from options before
-        create_regions() is called.  Skip it if nothing needs to happen early.
-
-        TODO: remove this method if you have nothing to compute here.
-        """
-        # Example: pre-compute which locations are active given options.
-        # self.active_locations = {
-        #     name for name, data in LOCATION_TABLE.items()
-        #     if self._location_is_active(name, data)
-        # }
-        pass
 
     # ── create_regions ─────────────────────────────────────────────────────────
     def create_regions(self) -> None:
-        """Build the region graph.
-
-        A Region is a named section of the game.  Entrances connect regions.
-        Locations live inside regions.  Rules (in rules.py) gate entrances
-        and locations.
-
-        The region named "Menu" must always exist — it is the starting point.
-        """
-        # Create one Region object per named area.
+        """Build the region graph (regions, locations, entrances)."""
         regions: dict[str, Region] = {}
         for region_name in ALL_REGIONS:
             region = Region(region_name, self.player, self.multiworld)
@@ -125,6 +94,18 @@ class DQHRSWorld(World):
                 region,
             )
             region.locations.append(location)
+
+        # ── Victory event ──────────────────────────────────────────────────────
+        # An EVENT is a location with id=None holding a locked item with id=None.
+        # It exists only during generation: it lets the generator answer
+        # "can the player win?". It is never sent to the player. The real goal
+        # is reported by the client (see client.py, _check_goal).
+        # The rule that decides when it is reachable lives in rules.py (per goal).
+        victory = DQHRSLocation(self.player, "Victory", None, regions["Boingburg"])
+        victory.place_locked_item(
+            DQHRSItem("Victory", ItemClassification.progression, None, self.player)
+        )
+        regions["Boingburg"].locations.append(victory)
 
         # Le point de départ mène au hub
         regions["Menu"].connect(regions["Boingburg"], "Menu -> Boingburg")
@@ -143,26 +124,47 @@ class DQHRSWorld(World):
         ):
             regions["Boingburg"].connect(regions[zone], f"Boingburg -> {zone}")
 
-        # La forêt complète s'atteint UNIQUEMENT depuis la tombe (pas de règle ici : la tombe est déjà verrouillée)
+        # La forêt complète s'atteint UNIQUEMENT depuis la tombe
         regions["Tootinschleimans_Tomb"].connect(regions["Forewood_Forest"], "Tootinschleimans_Tomb -> Forewood_Forest")
 
     # ── create_items ───────────────────────────────────────────────────────────
     def create_items(self) -> None:
-        """Fill the multiworld item pool.
+        """Fill the multiworld item pool: exactly one item per location.
 
-        The total item count must equal the total location count.
-        If you have more locations than items, add filler.
-        If you have more items than locations, remove some items or locations.
+        Priority order (so that nothing important is ever silently dropped):
+          1. Access_* and Slime_* items: ALWAYS in the pool.
+          2. Filler ("100 Gold"): a share of the remaining slots, set by filler_weight.
+          3. "... Unlocked" items: drawn at random to fill what is left.
+             The ones that do not fit are given to the player at the start
+             (precollected) instead of being lost.
         """
-        pool: list[DQHRSItem] = []
+        location_count = len(LOCATION_TABLE)  # the Victory event is not counted (no real id)
 
-        for item_name, item_data in ITEM_TABLE.items():
-            # TODO: add option-driven exclusions here if some items are optional.
-            item = self.create_item(item_name)
-            pool.append(item)
+        # 1. Mandatory items
+        pool: list[DQHRSItem] = [
+            self.create_item(name)
+            for name in ITEM_TABLE
+            if name.startswith(("Access_", "Slime_"))
+        ]
+        free_slots = location_count - len(pool)
+        if free_slots < 0:
+            raise Exception(
+                f"DQH-RS: {len(pool)} mandatory items but only {location_count} locations."
+            )
 
-        # Pad with filler if the pool is short.
-        location_count = len(LOCATION_TABLE)
+        # 2. Filler: filler_weight 1..10 -> 10%..100% of the free slots
+        filler_count = free_slots * self.options.filler_weight.value // 10
+        unlocked_slots = free_slots - filler_count
+
+        # 3. "Unlocked" items: random draw, the overflow starts in the player's inventory
+        unlocked_names = [name for name in ITEM_TABLE if name.endswith(" Unlocked")]
+        self.random.shuffle(unlocked_names)  # self.random = the seeded RNG of this world
+        for name in unlocked_names[:unlocked_slots]:
+            pool.append(self.create_item(name))
+        for name in unlocked_names[unlocked_slots:]:
+            self.multiworld.push_precollected(self.create_item(name))
+
+        # Pad with filler until the pool matches the number of locations
         while len(pool) < location_count:
             pool.append(self.create_item(self.get_filler_item_name()))
 
@@ -172,14 +174,17 @@ class DQHRSWorld(World):
     def create_item(self, name: str) -> DQHRSItem:
         """Build a single DQHRSItem from its name."""
         data = ITEM_TABLE[name]
-        return DQHRSItem(name, data.classification, self.item_name_to_id[name], self.player)
+        classification = data.classification
+
+        # With the "save all slimes" goal the player needs all 100 Slime items,
+        # so they become progression (= the generator must place and guarantee them).
+        if name.startswith("Slime_") and self.options.goal == Goal.option_save_all_slimes:
+            classification = ItemClassification.progression
+
+        return DQHRSItem(name, classification, self.item_name_to_id[name], self.player)
 
     # ── get_filler_item_name ───────────────────────────────────────────────────
     def get_filler_item_name(self) -> str:
-        """Return the name of the default filler item.
-
-        TODO: replace with the actual filler item name from items.py.
-        """
         return "100 Gold"
 
     # ── set_rules ──────────────────────────────────────────────────────────────
@@ -189,14 +194,7 @@ class DQHRSWorld(World):
 
     # ── fill_slot_data ─────────────────────────────────────────────────────────
     def fill_slot_data(self) -> dict:
-        """Return a dict sent to the client after it connects.
-
-        Only include data the client truly needs at runtime.
-        Never put large blobs here — keep it small.
-
-        TODO: add any seed-specific data the client.py needs.
-        """
+        """Data sent to the client after it connects (read via ctx.slot_data)."""
         return {
             "goal": self.options.goal.value,
-            # Example: "death_link": bool(self.options.death_link),
         }

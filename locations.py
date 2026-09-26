@@ -36,6 +36,7 @@ class DQHRSLocationData(NamedTuple):
     region_name: str
     slime_id: int
     monster_id: int = -1  # index (0-based) in the bestiary table; -1 = not a bestiary location
+    tank_id: int = -1   # ID brut du combat (1-36 / 0x01-0x24) ; -1 = non concerné
 
 
 # ── Location table ────────────────────────────────────────────────────────────
@@ -198,6 +199,49 @@ LOCATION_TABLE: dict[str, DQHRSLocationData] = {
     "Restless Armor unlocked": DQHRSLocationData(0x17A, "Flying_Clawtress", 100, monster_id=17),
     "Killing Machine unlocked": DQHRSLocationData(0x17B, "Flying_Clawtress", 100, monster_id=18),
     "Golem unlocked": DQHRSLocationData(0x17C, "Flying_Clawtress", 100, monster_id=19),
+
+    # ────────────────────────────── TANKS ────────────────────────────────────
+        # ─────────────────────────── COMBATS DE TANK ──────────────────────────────
+    # 36 combats, tank_id de 1 (0x01) à 36 (0x24), lus à TANK_BATTLE_ID_ADDR.
+    # TODO: renommer chaque "TODO_Tank_Battle_XX" avec le vrai nom du combat une
+    # fois identifié en jeu, et corriger la région si besoin (mise à "Boingburg"
+    # par défaut car on ne sait pas encore où chaque combat a lieu).
+    "Websy tank battle won": DQHRSLocationData(0x17D, "Boingburg", 100, tank_id=0x01),
+    "TODO_Tank_Battle_02 defeated": DQHRSLocationData(0x17E, "Boingburg", 100, tank_id=0x02),
+    "TODO_Tank_Battle_03 defeated": DQHRSLocationData(0x17F, "Boingburg", 100, tank_id=0x03),
+    "Pyjamas tank battle won": DQHRSLocationData(0x180, "Boingburg", 100, tank_id=0x04),
+    "TODO_Tank_Battle_05 defeated": DQHRSLocationData(0x181, "Boingburg", 100, tank_id=0x05),
+    "TODO_Tank_Battle_06 defeated": DQHRSLocationData(0x182, "Boingburg", 100, tank_id=0x06),
+    "TODO_Tank_Battle_07 defeated": DQHRSLocationData(0x183, "Boingburg", 100, tank_id=0x07),
+    "TODO_Tank_Battle_08 defeated": DQHRSLocationData(0x184, "Boingburg", 100, tank_id=0x08),
+    "Guaca Moly tank battle won": DQHRSLocationData(0x185, "Boingburg", 100, tank_id=0x09),
+    "TODO_Tank_Battle_0A defeated": DQHRSLocationData(0x186, "Boingburg", 100, tank_id=0x0A),
+    "TODO_Tank_Battle_0B defeated": DQHRSLocationData(0x187, "Boingburg", 100, tank_id=0x0B),
+    "Slival first tank battle won": DQHRSLocationData(0x188, "Boingburg", 100, tank_id=0x0C),
+    "TODO_Tank_Battle_0D defeated": DQHRSLocationData(0x189, "Boingburg", 100, tank_id=0x0D),
+    "TODO_Tank_Battle_0E defeated": DQHRSLocationData(0x18A, "Boingburg", 100, tank_id=0x0E),
+    "TODO_Tank_Battle_0F defeated": DQHRSLocationData(0x18B, "Boingburg", 100, tank_id=0x0F),
+    "Bugsy tank battle won": DQHRSLocationData(0x18C, "Boingburg", 100, tank_id=0x10),
+    "Dracky Dan tank battle won": DQHRSLocationData(0x18D, "Boingburg", 100, tank_id=0x11),
+    "Molone tank battle won": DQHRSLocationData(0x18E, "Boingburg", 100, tank_id=0x12),
+    "Slival second tank battle won": DQHRSLocationData(0x18F, "Boingburg", 100, tank_id=0x13),
+    "TODO_Tank_Battle_14 defeated": DQHRSLocationData(0x190, "Boingburg", 100, tank_id=0x14),
+    "TODO_Tank_Battle_15 defeated": DQHRSLocationData(0x191, "Boingburg", 100, tank_id=0x15),
+    "TODO_Tank_Battle_16 defeated": DQHRSLocationData(0x192, "Boingburg", 100, tank_id=0x16),
+    "TODO_Tank_Battle_17 defeated": DQHRSLocationData(0x193, "Boingburg", 100, tank_id=0x17),
+    "TODO_Tank_Battle_18 defeated": DQHRSLocationData(0x194, "Boingburg", 100, tank_id=0x18),
+    "TODO_Tank_Battle_19 defeated": DQHRSLocationData(0x195, "Boingburg", 100, tank_id=0x19),
+    "TODO_Tank_Battle_1A defeated": DQHRSLocationData(0x196, "Boingburg", 100, tank_id=0x1A),
+    "TODO_Tank_Battle_1B defeated": DQHRSLocationData(0x197, "Boingburg", 100, tank_id=0x1B),
+    "TODO_Tank_Battle_1C defeated": DQHRSLocationData(0x198, "Boingburg", 100, tank_id=0x1C),
+    "Slival third tank battle won": DQHRSLocationData(0x199, "Boingburg", 100, tank_id=0x1D),
+    "TODO_Tank_Battle_1E defeated": DQHRSLocationData(0x19A, "Boingburg", 100, tank_id=0x1E),
+    "Rusty tank battle won": DQHRSLocationData(0x19B, "Boingburg", 100, tank_id=0x1F),
+    "TODO_Tank_Battle_20 defeated": DQHRSLocationData(0x19C, "Boingburg", 100, tank_id=0x20),
+    "Hollow Kitty tank battle won": DQHRSLocationData(0x19D, "Boingburg", 100, tank_id=0x21),
+    "TODO_Tank_Battle_22 defeated": DQHRSLocationData(0x19E, "Boingburg", 100, tank_id=0x22),
+    "TODO_Tank_Battle_23 defeated": DQHRSLocationData(0x19F, "Boingburg", 100, tank_id=0x23),
+    "TODO_Tank_Battle_24 defeated": DQHRSLocationData(0x1A0, "Boingburg", 100, tank_id=0x24),
 }
 
 # ── Helper: build name → id mapping ───────────────────────────────────────────
@@ -207,6 +251,14 @@ LOCATION_NAME_TO_ID: dict[str, int] = {
     name: BASE_ID + data.id_offset
     for name, data in LOCATION_TABLE.items()
 }
+
+# ── Goals ─────────────────────────────────────────────────────────────────────
+FINAL_BOSS_LOCATION_ID: int = LOCATION_NAME_TO_ID["Don Clawleone defeated"]
+
+# Les boss et monstres ont slime_id = 100 : on filtre donc sur < 100.
+SLIME_LOCATION_IDS: frozenset[int] = frozenset(
+    BASE_ID + data.id_offset for data in LOCATION_TABLE.values() if data.slime_id < 100
+)
 
 # ── Helper: build slime_id → AP location id mapping ───────────────────────────
 # This is what client.py actually uses. It never needs to change when you
@@ -230,6 +282,13 @@ MONSTER_ID_TO_LOCATION_ID: dict[int, int] = {
     data.monster_id: BASE_ID + data.id_offset
     for data in LOCATION_TABLE.values()
     if data.monster_id != -1
+}
+
+# ─────────────────────────── COMBATS DE TANK ──────────────────────────────
+TANK_ID_TO_LOCATION_ID: dict[int, int] = {
+    data.tank_id: BASE_ID + data.id_offset
+    for data in LOCATION_TABLE.values()
+    if data.tank_id != -1
 }
 
 # ── Convenience: list all region names used ───────────────────────────────────

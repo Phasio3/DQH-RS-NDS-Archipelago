@@ -219,8 +219,7 @@ ITEM_TABLE: dict[str, DQHRSItemData] = {
     "100 Gold": DQHRSItemData(ItemClassification.filler, 0xAF),
 
     # ── Traps ─────────────────────────────────────────────────────────────────
-    # Optional; only add these if the game supports receiving bad things.
-    # "TODO_Trap_1": DQHRSItemData(ItemClassification.trap, 0x30),
+    "Low HP Trap": DQHRSItemData(ItemClassification.trap, 0xB0),
 }
 
 # ── Helper: build name → id mapping ───────────────────────────────────────────

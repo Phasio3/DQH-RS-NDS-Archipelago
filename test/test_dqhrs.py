@@ -23,12 +23,12 @@ from test.bases import WorldTestBase
 
 class TestDQHRSWorld(WorldTestBase):
     """Default generation tests inherited from WorldTestBase."""
-    game = "DQH-RS"
+    game = "dqh_rs"
 
 
 class TestDQHRSAccessRules(WorldTestBase):
     """Tests that verify specific access dependencies."""
-    game = "DQH-RS"
+    game = "dqh_rs"
 
     def test_start_zone_has_checks(self) -> None:
         """La zone de départ doit contenir au moins un check."""
@@ -62,10 +62,18 @@ class TestDQHRSAccessRules(WorldTestBase):
         self.collect_all_but([])  # collect everything
         self.assertBeatable(True)
 
+class TestSlimeGoal(WorldTestBase):
+    game = "dqh_rs"
+    options = {"goal": "save_all_slimes"}
+
+    def test_slimes_are_progression(self) -> None:
+        slimes = [i for i in self.multiworld.itempool if i.name.startswith("Slime_")]
+        self.assertEqual(len(slimes), 100)
+        self.assertTrue(all(i.advancement for i in slimes))
 
 class TestDQHRSOptions(WorldTestBase):
     """Tests that verify option-driven behavior."""
-    game = "DQH-RS"
+    game = "dqh_rs"
 
     # TODO: add option overrides using the `options` class attribute.
     # Example:
