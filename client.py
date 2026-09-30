@@ -16,95 +16,114 @@ from NetUtils import ClientStatus
 
 from .locations import SLIME_ID_TO_LOCATION_ID
 from .locations import MONSTER_ID_TO_LOCATION_ID
+from .locations import ITEM_ID_TO_LOCATION_ID
 from .locations import LOCATION_TABLE
 from .locations import FINAL_BOSS_LOCATION_ID, SLIME_LOCATION_IDS
 from .locations import TANK_ID_TO_LOCATION_ID
+from .locations import TANK_UPGRADE_ID_TO_LOCATION_ID
 from .items import BASE_ID
 from .randomizer import TankAmmoRandomizer
 from .options import Goal
 
 # ── Constants still pending real research (see CHECKLIST.md §6) ────────────────
-AP_ITEM_INDEX_ADDR = 0x00001890    
-RECV_ITEM_COUNT_ADDR = 0x00001C00  
-ITEM_INBOX_ADDR = 0x00001EB0       
+AP_ITEM_INDEX_ADDR = 0x00001890
+RECV_ITEM_COUNT_ADDR = 0x00001C00
+ITEM_INBOX_ADDR = 0x00001EB0
 ITEM_INBOX_STRIDE = 2
-GOAL_FLAG_ADDR = 0x0013B469        
+GOAL_FLAG_ADDR = 0x0013B469
 ROOM_ID_ADDR = 0x0013B068
-MONSTER_ID_ADDR_BEGIN = 0x00214260
+MONSTER_ID_ADDR_BEGIN = 0x00214270
 MONSTER_ID_ADDR_END = 0x002142BF
 TANK_BATTLE_FLAG_ADDR = 0x0013B487
 PLAYER_HP_ADDR = 0x00143BD8
 
+
 # ── tank battle ──────────────────────────────────────────────────────────
-TANK_BATTLE_ID_ADDR = 0x0013AED8        # 01-24 (hex) selon le combat ; ne repasse jamais à 00
-TANK_EXPLOSION_ANIM_ADDR = 0x0013B5B4   # passe à 02 à la fin de l'explosion du tank adverse
+TANK_BATTLE_ID_ADDR = 0x0013AED8        # 01-24 (hex) depending on the battle; never goes back to 00
+TANK_EXPLOSION_ANIM_ADDR = 0x0013B5B4   # goes to 02 at the end of the enemy tank explosion
 TANK_EXPLOSION_DONE_VALUE = 0x02
 
+# ── tank upgrades ──────────────────────────────────────────────────────────
+# Contiguous byte table, 1 byte per upgrade:
+#   0x00 = locked, 0x01 = unlocked
+# The range goes from TANK_UPGRADE_ID_ADDR_BEGIN to TANK_UPGRADE_ID_ADDR_END included.
+TANK_UPGRADE_ID_ADDR_BEGIN = 0x002143e7
+TANK_UPGRADE_ID_ADDR_END = 0x002143fa
+TANK_UPGRADE_ENTRY_SIZE = 1
+TANK_UPGRADE_COUNT = (TANK_UPGRADE_ID_ADDR_END - TANK_UPGRADE_ID_ADDR_BEGIN + 1) // TANK_UPGRADE_ENTRY_SIZE
+TANK_UPGRADE_STATUS_LOCKED = 0x00  # kept to document the locked value
+TANK_UPGRADE_ID_BASE = 0x25  # tank_id of the first byte of the range
+
+# ── item found ──────────────────────────────────────────────────────────
+ITEM_ENTRY_SIZE = 4
+ITEM_COUNT = 59
+ITEM_STATUS_LOCKED = 0x00
+
 # ── Bestiary table ──────────────────────────────────────────────────────────
-# Chaque monstre occupe une entrée de 4 octets consécutifs :
-#   octet 0 : statut  -> 0x00 = pas débloqué, 0x01 = débloqué, 0x11 = débloqué
-#             + version dorée (ces deux derniers cas comptent tous les deux
-#             comme "débloqué" pour la location)
-#   octet 1 : nombre de spécimens capturés par le joueur
-#   octets 2-3 : inutilisés (toujours 00 00 observé pour l'instant)
-# L'index de l'entrée (0, 1, 2...) est le "monster_id" utilisé dans
-# locations.py — voir MONSTER_ID_TO_LOCATION_ID ci-dessous.
+# Each monster occupies a 4-byte contiguous entry:
+#   byte 0 : status -> 0x00 = locked, 0x01 = unlocked, 0x11 = unlocked
+#             + golden version (these two cases both count as "unlocked"
+#             for the location)
+#   byte 1 : number of specimens captured by the player
+#   bytes 2-3 : unused (always 00 00 observed so far)
+# The entry index (0, 1, 2...) is the "monster_id" used in
+# locations.py — see MONSTER_ID_TO_LOCATION_ID below.
 MONSTER_ENTRY_SIZE = 4
 MONSTER_COUNT = 20
 MONSTER_STATUS_LOCKED = 0x00
 
-# ── Hot Patch : neutralise l'appel qui écrit 01 dans 0x02214444 ────────────
-HOTPATCH_ADDR = 0x0207ECF4 - 0x02000000      # = 0x7ECF4, relatif au domaine "Main RAM"
+# ── Hot Patch: neutralize the call that writes 01 to 0x02214444 ─────────────
+HOTPATCH_ADDR = 0x0207ECF4 - 0x02000000      # = 0x7ECF4, relative to the "Main RAM" domain
 BL_ORIGINAL   = bytes([0xF6, 0xD8, 0x01, 0xEB])   # bl FUN_020f50d4
 NOP           = bytes([0x00, 0x00, 0xA0, 0xE1])   # mov r0, r0
 
 # ── Map unlock system ────────────────────────────────────────────────────
-# L'animation de révélation de map est pilotée par 3 champs d'une structure
-# globale fixe (jamais réallouée, toujours à 0x022106C0) :
-#   0x02214444  mode  : 0x01 = rien à faire, 0x02 = "révèle cette map"
-#   0x02214445  id    : quelle map révéler (consommé à l'ouverture de la carte)
-#   0x02214442  timer : décompte interne de l'animation ; retombe à 0x00
-#                        et y reste une fois l'animation vraiment terminée
+# The map reveal animation is driven by 3 fields in a fixed global structure
+# (never reallocated, always at 0x022106C0):
+#   0x02214444  mode  : 0x01 = nothing to do, 0x02 = "reveal this map"
+#   0x02214445  id    : which map to reveal (consumed when the map opens)
+#   0x02214442  timer : internal animation countdown; returns to 0x00
+#                        and stays there once the animation is truly finished
 #
-# Forcer le mode à 0x01 en permanence empêche tout déblocage scénaristique
-# du jeu de se produire. On ne passe à 0x02 que nous-mêmes, une map à la
-# fois, quand un item "Access_*" reçu n'a pas encore été appliqué.
+# Forcing the mode to 0x01 permanently prevents the game from triggering its
+# own story-based map unlocks. We switch to 0x02 ourselves, one map at a time,
+# whenever a received "Access_*" item has not yet been applied.
 MAP_UNLOCK_MODE_ADDR  = 0x00214444
 MAP_UNLOCK_ID_ADDR    = 0x00214445
 MAP_UNLOCK_TIMER_ADDR = 0x00214442
 MODE_IDLE   = 0x01
 MODE_REVEAL = 0x02
 
-# Compteur d'animation du petit guide (comportement observé) :
-#   - dans la mini-map      : décompte en boucle  MAX -> ... -> 00 -> MAX -> ...
-#   - hors de la mini-map   : reste FIGÉ sur sa valeur la plus haute (MAX varie :
-#                             03, 05, 0A... on ne peut donc pas s'appuyer sur une
-#                             valeur précise, seulement sur "est-ce que ça bouge ?")
-#   - pendant l'animation de déblocage d'une map : 0xFF (et UNIQUEMENT à ce moment)
-MAP_ANIM_ADDR  = 0x0021442C   # relatif à "Main RAM" (absolu : 0x0221442C)
+# Mini-map guide animation counter (observed behavior):
+#   - in the mini-map      : counts in a loop MAX -> ... -> 00 -> MAX -> ...
+#   - outside the mini-map : remains FROZEN on its highest value (MAX varies:
+#                             03, 05, 0A... so we cannot rely on a precise
+#                             value, only on whether it is moving)
+#   - during the map unlock animation : 0xFF (and ONLY then)
+MAP_ANIM_ADDR  = 0x0021442C   # relative to "Main RAM" (absolute: 0x0221442C)
 ANIM_UNLOCKING = 0xFF
 
-# Nombre de ticks sans aucun changement du compteur avant de considérer
-# que le joueur n'est plus dans l'écran de sélection (~1 s à 8 ticks/s).
+# Number of ticks without any change in the counter before considering
+# that the player is no longer on the selection screen (~1 s at 8 ticks/s).
 MINIMAP_ACTIVITY_TICKS = 8
 
-# Nombre de TICKS de game_watcher (~125 ms chacun, PAS des frames) où le timer doit
-# rester à 0x00 (après avoir déjà été non-nul) avant qu'on considère l'animation
-# terminée. C'est le filet de sécurité LENT : il sert à ne pas confondre la vraie
-# fin avec la pause interne entre les phases 2 et 3 de l'animation.
+# Number of game_watcher ticks (~125 ms each, NOT frames) during which the timer
+# must remain at 0x00 (after already being non-zero) before we consider the
+# animation complete. This is the SLOW safety net: it avoids confusing the true
+# end with the internal pause between phases 2 and 3 of the animation.
 UNLOCK_STABILITY_FRAMES = 1
 
-# Nombre de ticks utilisé à la place quand les DEUX signaux concordent : 0xFF a été
-# vu (l'animation a vraiment tourné), le compteur du guide est revenu à une valeur
-# normale, et le timer est à 0x00. Fin détectée en ~250 ms au lieu de ~1 s, pour
-# écrire le bit dans le bitfield avant que le joueur ne puisse rouvrir la carte.
+# Number of ticks used instead when BOTH signals agree: 0xFF was seen (the
+# animation really ran), the guide counter returned to a normal value, and the
+# timer is 0x00. Completion is detected in ~250 ms instead of ~1 s, so the bit
+# can be written before the player can reopen the map.
 UNLOCK_FAST_END_TICKS = 2
 
-# Mettre à True pour afficher un journal des changements d'état du déblocage.
+# Set to True to print a log of map-unlock state changes.
 DEBUG_MAP_UNLOCK = False
 
-# Offset relatif à "Main RAM" (0x0012E040 -> absolu 0x0212E040), donc valide :
-# la Main RAM du DS fait 4 Mo, les offsets vont de 0x000000 à 0x3FFFFF.
+# Relative offset to "Main RAM" (0x0012E040 -> absolute 0x0212E040), so valid:
+# the DS Main RAM is 4 MB, and offsets range from 0x000000 to 0x3FFFFF.
 UNLOCKED_MAPS_BITFIELD_ADDR   = 0x0012E040
 UNLOCKED_MAPS_BITFIELD_DOMAIN = "Main RAM"
 
@@ -118,7 +137,7 @@ MAP_ITEM_TO_GAME_ID: dict[str, int] = {
 }
 
 def _map_bit(game_id: int) -> int:
-    """Position du bit pour un ID de map donné (0x02-0x07 -> bit 0-5)."""
+    """Position of the bit for a given map ID (0x02-0x07 -> bit 0-5)."""
     return 1 << (game_id - 2)
 
 # ── Saved-slime table ────────────────────────────────────────────────────────
@@ -131,7 +150,7 @@ EMPTY_SLOT = 0xFF
 TOTAL_NUMBER_OF_SLIME_ADDR = 0x02143A9
 
 # ── Items ────────────────────────────────────────────────────────
-GOLD_COUNTER_ADDR = 0x0213B0C0 # 32 bits
+GOLD_COUNTER_ADDR = 0x0013B0C0 # 32 bits
 
 # ── BOSS ────────────────────────────────────────────────────────
 BOSS_NAMES = ["Bough Beater", "Pot Belly", "Harvest Loon", "Don Clawleone", "Lickity Spit"]
@@ -145,7 +164,7 @@ LICKITY_SPIT_HEALTH_ADDR = 0x0147350
 # ── Unlocked Items Addresses ──────────────────────────────────────────────────
 UNLOCKED_ITEMS_ADDRS = {
     "Pompoms Unlocked": 0x0214180,
-    "Chests Unlocked": 0x0214186,
+    "Chests Unlocked": 0x0214184,
     "Catnips Unlocked": 0x0214188,
     "Rockbombs Unlocked": 0x021418C,
     "Spooklear Bombs Unlocked": 0x0214190,
@@ -217,17 +236,21 @@ class DQHRSClient(BizHawkClient):
         self.total_slimes = 0
         self.boss_health_hist = []
         self.unlocked_items_received = set()
-        self._unlock_in_progress = False   # une révélation est-elle en cours ?
-        self._unlock_timer_started = False # le timer a-t-il déjà été vu non-nul ?
-        self._unlock_zero_streak = 0       # frames consécutives à 0x00 depuis
+        self._unlock_in_progress = False   # is a reveal currently in progress?
+        self._unlock_timer_started = False # has the timer already been seen non-zero?
+        self._unlock_zero_streak = 0       # consecutive frames at 0x00 since
         self._pending_game_id: int | None = None
-        self._saw_unlocking_anim = False   # anim == 0xFF vu pendant cette révélation ?
-        self._unlock_end_streak = 0        # ticks consécutifs où les 2 signaux de fin concordent
-        self._last_snapshot = None         # pour le journal de debug
+        self._saw_unlocking_anim = False   # anim == 0xFF seen during this reveal?
+        self._unlock_end_streak = 0        # consecutive ticks where the 2 end signals agree
+        self._last_snapshot = None         # for the debug log
         self._last_anim: int | None = None
-        self._ticks_since_anim_change = MINIMAP_ACTIVITY_TICKS  # "inactif" au départ
+        self._ticks_since_anim_change = MINIMAP_ACTIVITY_TICKS  # "inactive" at startup
         self.tank_ammo = TankAmmoRandomizer()
         self._prev_tank_explosion_anim = 0x00
+        self._prev_item_counts: dict[int, int] = {}
+        # Global lock: while False, no "tank upgrade" check should be sent to the AP server,
+        # even if the byte in memory changes to 01.
+        self.begin_apworld = False
         pass
 
     async def validate_rom(self, ctx: BizHawkClientContext) -> bool:
@@ -249,12 +272,12 @@ class DQHRSClient(BizHawkClient):
         return True
 
     async def apply_hotpatch(self, ctx: BizHawkClientContext) -> None:
-        """Remplace le bl par un NOP, uniquement si l'instruction d'origine est bien là."""
+        """Replaces the bl instruction with a NOP only if the original instruction is present."""
         try:
             await bizhawk.guarded_write(
                 ctx.bizhawk_ctx,
-                [(HOTPATCH_ADDR, NOP, "Main RAM")],          # ce qu'on écrit
-                [(HOTPATCH_ADDR, BL_ORIGINAL, "Main RAM")],  # garde : on n'écrit que si c'est identique
+                [(HOTPATCH_ADDR, NOP, "Main RAM")],          # what we write
+                [(HOTPATCH_ADDR, BL_ORIGINAL, "Main RAM")],  # guard: write only if it matches exactly
             )
             #print("Hotpatch applied: bl replaced with NOP.")
         except bizhawk.RequestFailedError:
@@ -262,31 +285,31 @@ class DQHRSClient(BizHawkClient):
             pass
 
     def _player_in_minimap(self, anim: int) -> bool:
-        """True si le compteur d'animation du guide bouge (= écran de sélection).
+        """True if the guide animation counter is moving (= selection screen).
 
-        Hors de la mini-map le compteur reste figé sur sa valeur la plus haute
-        (valeur variable) : on détecte donc un MOUVEMENT sur une fenêtre de
-        MINIMAP_ACTIVITY_TICKS ticks, jamais une valeur précise.
+        Outside the minimap, the counter stays frozen on its highest value
+        (variable value): we therefore detect a MOVEMENT over a window of
+        MINIMAP_ACTIVITY_TICKS ticks, never a precise value.
 
-        Doit être appelée à CHAQUE tick pour garder l'historique à jour.
+        Must be called on EVERY tick to keep the history up to date.
         """
         if anim == ANIM_UNLOCKING:
-            # Animation de déblocage : ce n'est pas la sélection.
+            # Unlock animation: this is not the selection screen.
             self._last_anim = anim
             self._ticks_since_anim_change = MINIMAP_ACTIVITY_TICKS
             return False
 
         if self._last_anim is not None and anim != self._last_anim:
-            self._ticks_since_anim_change = 0   # le compteur a bougé
+            self._ticks_since_anim_change = 0   # the counter moved
         else:
-            self._ticks_since_anim_change += 1  # même valeur qu'au tick précédent
+            self._ticks_since_anim_change += 1  # same value as the previous tick
 
         self._last_anim = anim
         return self._ticks_since_anim_change < MINIMAP_ACTIVITY_TICKS
 
     async def _handle_map_unlocks(self, ctx: "BizHawkClientContext") -> None:
-        """Livre les items d'accès aux maps un par un, via l'animation du jeu,
-        tout en empêchant tout déblocage scénaristique natif de se produire."""
+        """Delivers access items for maps one by one through the game's animation,
+        while preventing any native story-based map unlocking from occurring."""
 
         try:
             bitfield_byte, mode_byte, timer_byte, anim_byte = await bizhawk.read(ctx.bizhawk_ctx, [
@@ -300,7 +323,7 @@ class DQHRSClient(BizHawkClient):
 
         bitfield, current_mode, timer = bitfield_byte[0], mode_byte[0], timer_byte[0]
         anim = anim_byte[0]
-        in_minimap = self._player_in_minimap(anim)   # à appeler à chaque tick, avant tout return
+        in_minimap = self._player_in_minimap(anim)   # call on every tick, before any return
         #print(f"DEBUG: _handle_map_unlocks: bitfield={bitfield:08b} mode={current_mode:02X} timer={timer:02X} anim={anim:02X} in_minimap={in_minimap}")
 
         if DEBUG_MAP_UNLOCK:
@@ -313,31 +336,31 @@ class DQHRSClient(BizHawkClient):
                 self._last_snapshot = snapshot
 
         if self._unlock_in_progress:
-            # Maintient constamment l'ID de la map en cours de déblocage.
+            # Keep the ID of the map currently being unlocked at all times.
             await bizhawk.write(ctx.bizhawk_ctx, [
                 (MAP_UNLOCK_ID_ADDR, bytes([self._pending_game_id]), "Main RAM"),
             ])
 
-            # Le suivi de fin d'animation ne dépend PAS de in_minimap : si le joueur quitte
-            # la carte juste après l'animation, le compteur reste figé et in_minimap finit
-            # par retomber à False, ce qui ne doit pas retarder l'enregistrement du bit.
+            # End-of-animation tracking does NOT depend on in_minimap: if the player leaves
+            # the map just after the animation, the counter stays frozen and in_minimap eventually
+            # falls back to False, which must not delay writing the bit.
 
-            # Signal A : 0xFF n'apparaît que pendant l'animation de déblocage (hors mini-map
-            # le compteur reste sur sa valeur haute normale). L'avoir vu prouve donc que
-            # le jeu a bien joué l'animation.
+            # Signal A: 0xFF only appears during the unlock animation (outside the minimap,
+            # the counter stays on the normal high value). Seeing it therefore proves the
+            # game played the animation.
             #print(f"DEBUG: _handle_map_unlocks: anim={anim:02X}, timer={timer:02X}, in_minimap={in_minimap}, ff={anim == ANIM_UNLOCKING}")
             if anim == ANIM_UNLOCKING:
                 self._saw_unlocking_anim = True
 
-            # Signal B : le timer interne de l'animation (filet de sécurité lent).
+            # Signal B: the internal animation timer (slow safety net).
             if timer != 0:
                 self._unlock_timer_started = True
                 self._unlock_zero_streak = 0
             elif self._unlock_timer_started:
                 self._unlock_zero_streak += 1
 
-            # Fin RAPIDE : FF vu, compteur revenu à une valeur normale (boucle OU figé sur
-            # sa valeur haute, les deux sont != FF) et timer à 0, pendant 2 ticks de suite.
+            # FAST END: FF seen, counter back to a normal value (loop OR frozen on its high
+            # value, both are != FF) and timer at 0 for 2 ticks in a row.
             if self._saw_unlocking_anim and anim != ANIM_UNLOCKING and timer == 0:
                 self._unlock_end_streak += 1
             else:
@@ -347,7 +370,7 @@ class DQHRSClient(BizHawkClient):
             slow_end = self._unlock_timer_started and self._unlock_zero_streak >= UNLOCK_STABILITY_FRAMES
 
             if fast_end or slow_end:
-                # Terminé : on enregistre le bit et on remet le mode au repos.
+                # Finished: write the bit and return the mode to idle.
                 new_bitfield = bitfield | _map_bit(self._pending_game_id)
                 try:
                     written = await bizhawk.guarded_write(
@@ -360,7 +383,7 @@ class DQHRSClient(BizHawkClient):
                 except bizhawk.RequestFailedError:
                     return
                 if not written:
-                    return  # garde échouée : rien n'a été écrit, on reste "en cours" et on réessaie
+                    return  # guarded write failed: nothing was written, we remain "in progress" and retry
                 self._unlock_in_progress = False
                 self._unlock_timer_started = False
                 self._unlock_zero_streak = 0
@@ -368,32 +391,32 @@ class DQHRSClient(BizHawkClient):
                 self._unlock_end_streak = 0
                 return
 
-            # Maintien du mode : jamais 02 quand le joueur est dans la sélection.
+            # Maintain the mode: never 02 while the player is in the selection screen.
             wanted = MODE_IDLE if in_minimap else MODE_REVEAL
             if current_mode != wanted:
                 #print(f"DEBUG: _handle_map_unlocks: changing mode from {current_mode:02X} to {wanted:02X}")
                 await bizhawk.write(ctx.bizhawk_ctx, [(MAP_UNLOCK_MODE_ADDR, bytes([wanted]), "Main RAM")])
             return
 
-        # Rien en cours : on empêche le jeu de déclencher son propre déblocage.
+        # Nothing in progress: prevent the game from triggering its own unlock.
         if current_mode != MODE_IDLE:
             #print(f"DEBUG: _handle_map_unlocks: forcing mode to IDLE (was {current_mode:02X})")
             await bizhawk.write(ctx.bizhawk_ctx, [(MAP_UNLOCK_MODE_ADDR, bytes([MODE_IDLE]), "Main RAM")])
             #print("Forcing map unlock mode to IDLE to prevent native unlocks.")
 
-        # Le joueur choisit une map : on garde le mode à 01 et on retente au prochain tick.
+        # The player is choosing a map: keep the mode at 01 and retry on the next tick.
         if in_minimap:
             #print("Player is in the minimap, waiting for them to leave before applying new unlocks.")
             #print(f"DEBUG: _handle_map_unlocks: player is in minimap")
             return
 
-        # On cherche le prochain item "Access_*" reçu mais pas encore appliqué.
+        # Look for the next received "Access_*" item that has not yet been applied.
         for network_item in ctx.items_received:
 
             item_name = ctx.item_names.lookup_in_game(network_item.item)
             game_id = MAP_ITEM_TO_GAME_ID.get(item_name)
             if game_id is None or (bitfield & _map_bit(game_id)):
-                continue  # Pas un item de map, ou déjà appliqué.
+                continue  # Not a map item, or already applied.
             print(f"Checking received item: {game_id:02X} {item_name} (bitfield={bitfield:08b})")
 
             self._pending_game_id = game_id
@@ -408,19 +431,63 @@ class DQHRSClient(BizHawkClient):
             ])
             break
 
+    async def _handle_item_checks(self, ctx: "BizHawkClientContext") -> set[int]:
+        """Detects rising edges 00 -> 01 on item counters.
+
+        Each entry in UNLOCKED_ITEMS_ADDRS points to the item status.
+        The quantity counter sits at address + 0x01.
+
+        An AP check is generated only when a counter actually changes
+        from 0x00 to 0x01, and only after the AP run has started.
+        """
+        if not self.begin_apworld:
+            return set()
+
+        try:
+            item_counts = await bizhawk.read(
+                ctx.bizhawk_ctx,
+                [
+                    (addr + 0x01, 1, "Main RAM")
+                    for addr in UNLOCKED_ITEMS_ADDRS.values()
+                ],
+            )
+        except bizhawk.RequestFailedError:
+            return set()
+
+        new_checks: set[int] = set()
+
+        for item_id, (count_byte,) in zip(ITEM_ID_TO_LOCATION_ID, item_counts):
+            current_count = count_byte
+
+            previous_count = self._prev_item_counts.get(item_id, 0)
+
+            # Always record the current value.
+            self._prev_item_counts[item_id] = current_count
+
+            # Rising edge 00 -> 0X.
+            if previous_count != 0x00 or current_count == 0x00:
+                continue
+
+            location_ap_id = ITEM_ID_TO_LOCATION_ID.get(item_id)
+
+            if location_ap_id is not None and location_ap_id not in ctx.checked_locations:
+                new_checks.add(location_ap_id)
+
+        return new_checks
+
     async def _check_goal(self, ctx: BizHawkClientContext, new_checks: set[int]) -> None:
-        """Envoie CLIENT_GOAL au serveur quand l'objectif choisi est accompli."""
+        """Sends CLIENT_GOAL to the server when the selected objective is completed."""
         if ctx.finished_game:
             return
-        goal = (ctx.slot_data or {}).get("goal")   # envoyé par fill_slot_data
+        goal = (ctx.slot_data or {}).get("goal")   # sent by fill_slot_data
         if goal is None:
             return
 
-        done = ctx.checked_locations | new_checks  # déjà validées + celles du tick en cours
+        done = ctx.checked_locations | new_checks  # already checked + those from the current tick
         if goal == Goal.option_defeat_final_boss:
             reached = FINAL_BOSS_LOCATION_ID in done
         elif goal == Goal.option_save_all_slimes:
-            reached = SLIME_LOCATION_IDS <= done   # "<=" : sous-ensemble
+            reached = SLIME_LOCATION_IDS <= done   # "<=" : subset
         else:
             return
 
@@ -429,14 +496,14 @@ class DQHRSClient(BizHawkClient):
             ctx.finished_game = True
 
     async def apply_low_hp_trap(self, ctx: BizHawkClientContext) -> None:
-        await bizhawk.write(ctx.bizhawk_ctx, PLAYER_HP_ADDR, bytes([0x01]), "Main RAM")
+        await bizhawk.write(ctx.bizhawk_ctx, [(PLAYER_HP_ADDR, bytes([0x01]), "Main RAM")])
 
     async def _handle_tank_battle_checks(self, ctx: "BizHawkClientContext") -> set[int]:
-        """Détecte la fin d'un combat de tank via le front montant (00 -> 02) de
-        l'animation d'explosion, puis renvoie l'ID de location AP correspondant.
+        """Detects the end of a tank battle via the rising edge (00 -> 02) of the
+        explosion animation, then returns the corresponding AP location ID.
 
-        On ne réagit qu'au CHANGEMENT de valeur, jamais à la valeur seule : sinon
-        le même combat déclencherait un check à chaque tick où l'anim reste à 02.
+        We react only to a VALUE CHANGE, never to the value alone: otherwise, the
+        same battle would trigger a check on every tick while the anim stays at 02.
         """
         try:
             anim_byte, tank_id_byte = await bizhawk.read(ctx.bizhawk_ctx, [
@@ -450,7 +517,7 @@ class DQHRSClient(BizHawkClient):
         tank_id = tank_id_byte[0]
 
         rising_edge = (self._prev_tank_explosion_anim == 0x00 and anim == TANK_EXPLOSION_DONE_VALUE)
-        self._prev_tank_explosion_anim = anim  # toujours mettre à jour, même si pas de front
+        self._prev_tank_explosion_anim = anim  # always update, even without a rising edge
 
         #print(f"DEBUG: _handle_tank_battle_checks: tank_id={tank_id} anim={anim:02X} rising_edge={rising_edge}")
 
@@ -465,9 +532,44 @@ class DQHRSClient(BizHawkClient):
 
         return {location_ap_id}
 
+    async def _handle_tank_upgrade_checks(self, ctx: "BizHawkClientContext") -> set[int]:
+        """One check per unlocked tank upgrade (byte == 0x01), but only if
+        self.begin_apworld is True. While it is False, we do not even read the
+        table: this avoids sending free checks before the player has actually
+        started the randomized run.
+        """
+        if not self.begin_apworld:
+            return set()
+
+        try:
+            tank_upgrades = (await bizhawk.read(ctx.bizhawk_ctx,
+                [(TANK_UPGRADE_ID_ADDR_BEGIN,
+                  TANK_UPGRADE_ID_ADDR_END - TANK_UPGRADE_ID_ADDR_BEGIN + 1,
+                  "Main RAM")]
+            ))[0]
+        except bizhawk.RequestFailedError:
+            return set()  # connector didn't respond, will retry next loop
+
+        new_checks: set[int] = set()
+        for i in range(TANK_UPGRADE_COUNT):
+            status = tank_upgrades[i * TANK_UPGRADE_ENTRY_SIZE]
+            if status != 0x01:
+                continue  # only 0x01 explicitly means "unlocked"
+
+            tank_id = TANK_UPGRADE_ID_BASE + i
+            location_ap_id = TANK_UPGRADE_ID_TO_LOCATION_ID.get(tank_id)
+            if location_ap_id is not None and location_ap_id not in ctx.checked_locations:
+                new_checks.add(location_ap_id)
+
+        return new_checks
+
     async def game_watcher(self, ctx: BizHawkClientContext) -> None:
         if ctx.server is None or ctx.slot is None:
             return  # not connected to the AP server/slot yet
+
+        # From the first tick where the client is actually connected to an AP slot,
+        # the items and upgrades tables can generate checks.
+        self.begin_apworld = True
 
         await self.apply_hotpatch(ctx)
 
@@ -539,55 +641,64 @@ class DQHRSClient(BizHawkClient):
         except bizhawk.RequestFailedError:
             return  # connector didn't respond, will retry next loop
 
-        # ── Tank Battle ─────────────────────────────────────────────────────────
+        # ── Tank Battle ─────────────────────────────────────────────────
         new_checks |= await self._handle_tank_battle_checks(ctx)
 
-        # ── Bestiaire : un check par monstre dont le statut n'est plus 0x00 ─────
+        # ── Tank Upgrades ────────────────────────────────────────────────
+        new_checks |= await self._handle_tank_upgrade_checks(ctx)
+
+        # ── Bestiary: one check per monster whose status is no longer 0x00 ──
         for monster_id in range(MONSTER_COUNT):
             status = unlocked_monsters[monster_id * MONSTER_ENTRY_SIZE]
             if status == MONSTER_STATUS_LOCKED:
-                continue  # pas encore débloqué
+                continue
+            print(f"status monster_id = {status} | for monster_id = {monster_id}\nunlocked_monsters\n")
 
             location_ap_id = MONSTER_ID_TO_LOCATION_ID.get(monster_id)
             if location_ap_id is not None and location_ap_id not in ctx.checked_locations:
                 new_checks.add(location_ap_id)
-            #print(f"DEBUG: monster_id={monster_id} status={status:02X} location_ap_id={location_ap_id} new_check={location_ap_id not in ctx.checked_locations}")
-            #print(f"DEBUG: {MONSTER_ID_TO_LOCATION_ID}")
+
+        # ── Item ─────────────────────────────────────────────────────────
+        new_checks |= await self._handle_item_checks(ctx)
+
+        # Send ALL checks detected during this tick.
         if new_checks:
-            await ctx.send_msgs([{"cmd": "LocationChecks", "locations": list(new_checks)}])
+            await ctx.send_msgs([
+                {"cmd": "LocationChecks", "locations": list(new_checks)}
+            ])
 
         await self._check_goal(ctx, new_checks)
 
         # ── 3. Item delivery + goal detection ───────────────────────────────────
-        
+
         if len(ctx.items_received) > self.num_items_received:
             item = ctx.items_received[self.num_items_received]
             item_name = ctx.item_names.lookup_in_game(item.item)
-            
-            # Gestion des items Slime
+
+            # Handle Slime items
             if item_name.startswith("Slime_"):
                 self.total_slimes += 1
                 await bizhawk.write(ctx.bizhawk_ctx, [(TOTAL_NUMBER_OF_SLIME_ADDR, bytes([self.total_slimes]), "Main RAM")])
 
-            # Gestion du filler "100 Gold"
+            # Handle filler "100 Gold"
             elif item_name == "100 Gold":
-                # Lecture de l'or actuel (4 octets = 32 bits)
+                # Read the current gold (4 bytes = 32 bits)
                 gold_data = (await bizhawk.read(ctx.bizhawk_ctx, [(GOLD_COUNTER_ADDR, 4, "Main RAM")]))[0]
                 current_gold = int.from_bytes(gold_data, byteorder="little")
-                
-                # Calcul et écriture du nouvel or
+
+                # Calculate and write the new gold value
                 new_gold = current_gold + 100
                 await bizhawk.write(ctx.bizhawk_ctx, [(GOLD_COUNTER_ADDR, new_gold.to_bytes(4, byteorder="little"), "Main RAM")])
-            
+
             elif item_name == "Low HP Trap":
                 await self.apply_low_hp_trap(ctx)
 
-            # Enregistrement des items Unlocked
+            # Track unlocked items
             if item_name in UNLOCKED_ITEMS_ADDRS:
                 self.unlocked_items_received.add(item_name)
 
             self.num_items_received += 1
-            
+
         # ── 4. Enforce Unlocked Items states ────────────────────────────────────
         unlocked_writes = []
         for name, addr in UNLOCKED_ITEMS_ADDRS.items():
@@ -601,16 +712,3 @@ class DQHRSClient(BizHawkClient):
                 await bizhawk.write(ctx.bizhawk_ctx, unlocked_writes)
             except bizhawk.RequestFailedError:
                 pass
-
-        #pseudo-code:
-        #new_items_received_list = archipelago.received_list
-        #for new_item_received in new_items_received_list:
-        #   if new_item_received:
-        #       # Key_items Checks
-        #
-        #      if item_name.beginswith("Slime_"): # Useful Checks
-        #          total_slimes += 1
-        #      elif item_name == "100 Gold": # Filler Checks
-        #           money = bizhawk.read(GOLD_COUNTER_ADRR,2,"Main RAM")
-        #           new_money = list(money) + 100
-        #           await bizhawk.write(ctx.bizhawk_ctx, [(GOLD_COUNTER_ADDR, bytes(new_money)), "Main RAM"]

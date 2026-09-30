@@ -12,8 +12,6 @@
 #   ItemClassification.trap            → a trick item; hurts or hinders the player
 #   ItemClassification.skip_balancing  → like filler but excluded from early-game balancing
 #
-# TODO: fill in real item names from your game research.
-# TODO: decide the BASE_ID with a value that does not clash with other worlds.
 #       Archipelago has a spreadsheet of registered ID ranges; pick a free block.
 
 from BaseClasses import ItemClassification
@@ -21,7 +19,6 @@ from typing import NamedTuple
 
 
 # ── ID range ──────────────────────────────────────────────────────────────────
-# TODO: replace 0xDEAD_0000 with your real reserved base ID block.
 BASE_ID: int = 0x02000000
 
 
@@ -36,9 +33,6 @@ class DQHRSItemData(NamedTuple):
 # ── Item table ─────────────────────────────────────────────────────────────────
 # Keys are the item names the generator and hint system will use.
 # Values are DQHRSItemData instances.
-#
-# TODO: replace every placeholder entry with real in-game items.
-# TODO: keep id_offset values dense and sequential so unused slots stay obvious.
 ITEM_TABLE: dict[str, DQHRSItemData] = {
     # ── Progression items ─────────────────────────────────────────────────────
     # These unlock access to locations.  Put anything that can gate progress here.

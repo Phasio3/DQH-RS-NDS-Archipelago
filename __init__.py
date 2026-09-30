@@ -55,7 +55,22 @@ class DQHRSLocation(Location):
 class DQHRSWorld(World):
     """Dragon Quest Heroes: Rocket Slime randomizer world.
 
-    TODO: replace this docstring with a short player-facing description.
+    The Archipelago experience counts many location checks :
+    - Defeating bosses
+    - Saving slimes
+    - Collecting items for the first time
+    - Collecting monsters for the first time
+    - Unlocking tank's upgrades 
+
+    The "items" you'll receive will be :
+    - "slimes" which will increase the number of slimes in your town enabling the enlargement of the city
+    - The different zone in the game (this may cause problems in the progression of the game. This has to be proof-checked.)
+    - The unlocking of ammunitions
+    - A 100 Gold advantage (Filler item)
+
+    The ammo are randomized for each tank battle according to your current inventory and the ammos you unlocked.
+
+    A "Low HP Trap" is also available. It put the player at 1 HP.
     """
 
     game              = "dqh_rs"
@@ -66,9 +81,8 @@ class DQHRSWorld(World):
 
     item_name_to_id     = ITEM_NAME_TO_ID
     location_name_to_id = LOCATION_NAME_TO_ID
-
-    # A "name group" lets rules (and players' YAML) talk about a set of items at once.
-    # Here: state.has_group("Slimes", player, 100) = "I own 100 slimes".
+    
+    # state.has_group("Slimes", player, 100) = "I own 100 slimes".
     item_name_groups = {
         "Slimes": {name for name in ITEM_TABLE if name.startswith("Slime_")},
     }
@@ -107,13 +121,13 @@ class DQHRSWorld(World):
         )
         regions["Boingburg"].locations.append(victory)
 
-        # Le point de départ mène au hub
+        # The Menu leads to the Hub
         regions["Menu"].connect(regions["Boingburg"], "Menu -> Boingburg")
 
-        # La première moitié de la forêt : accessible d'entrée de jeu (pas de règle)
+        # First half of the Forewood Forest : Directly accessible (no rule)
         regions["Boingburg"].connect(regions["Forewood_Forest_part1"], "Boingburg -> Forewood_Forest_part1")
 
-        # Les 6 zones verrouillées : une porte chacune, avec le nom EXACT attendu par rules.py
+        # The 6 locked zones : a door each, with the EXACT name needed by rules.py
         for zone in (
             "Tootinschleimans_Tomb",
             "Mt_Krakatroda",
@@ -124,7 +138,7 @@ class DQHRSWorld(World):
         ):
             regions["Boingburg"].connect(regions[zone], f"Boingburg -> {zone}")
 
-        # La forêt complète s'atteint UNIQUEMENT depuis la tombe
+        # The entire Forewood Forest is only reachable after Tootinschleiman's Tomb has been unlocked
         regions["Tootinschleimans_Tomb"].connect(regions["Forewood_Forest"], "Tootinschleimans_Tomb -> Forewood_Forest")
 
     # ── create_items ───────────────────────────────────────────────────────────
@@ -163,6 +177,12 @@ class DQHRSWorld(World):
             pool.append(self.create_item(name))
         for name in unlocked_names[unlocked_slots:]:
             self.multiworld.push_precollected(self.create_item(name))
+
+        # __init__.py, dans create_items, AVANT le "while" de remplissage :
+        filler_needed = len(LOCATION_TABLE) - len(pool)
+        if self.options.include_traps and filler_needed > 0:
+            for _ in range(filler_needed // 4):   # ~25 % du filler, valeur arbitraire
+                pool.append(self.create_item("Low HP Trap"))
 
         # Pad with filler until the pool matches the number of locations
         while len(pool) < location_count:

@@ -36,12 +36,10 @@ class DQHRSLocationData(NamedTuple):
     region_name: str
     slime_id: int
     monster_id: int = -1  # index (0-based) in the bestiary table; -1 = not a bestiary location
-    tank_id: int = -1   # ID brut du combat (1-36 / 0x01-0x24) ; -1 = non concerné
-
+    tank_id: int = -1   # raw ID: tank battle 0x01-0x24, upgrade 0x25-0x38; -1 = not applicable
+    item_id: int = -1   # raw item ID (0-57 / 0x00-0x39); -1 = not applicable
 
 # ── Location table ────────────────────────────────────────────────────────────
-# TODO: as you confirm each real slime_id in-game, rename the entry and fix
-#       its slime_id value. id_offset must stay exactly as-is.
 LOCATION_TABLE: dict[str, DQHRSLocationData] = {
     # ────────────────────────────── SLIMES ────────────────────────────────────
     # ── Region: Forewood Forest ───────────────────────────────────────────────
@@ -201,11 +199,11 @@ LOCATION_TABLE: dict[str, DQHRSLocationData] = {
     "Golem unlocked": DQHRSLocationData(0x17C, "Flying_Clawtress", 100, monster_id=19),
 
     # ────────────────────────────── TANKS ────────────────────────────────────
-        # ─────────────────────────── COMBATS DE TANK ──────────────────────────────
-    # 36 combats, tank_id de 1 (0x01) à 36 (0x24), lus à TANK_BATTLE_ID_ADDR.
-    # TODO: renommer chaque "TODO_Tank_Battle_XX" avec le vrai nom du combat une
-    # fois identifié en jeu, et corriger la région si besoin (mise à "Boingburg"
-    # par défaut car on ne sait pas encore où chaque combat a lieu).
+        # ─────────────────────────── TANK BATTLES ────────────────────────────────
+    # 36 battles, tank_id from 1 (0x01) to 36 (0x24), read from TANK_BATTLE_ID_ADDR.
+    # TODO: rename each "TODO_Tank_Battle_XX" with the real battle name once it is
+    # identified in-game, and fix the region if needed (set to "Boingburg" by default
+    # because we still do not know where each battle takes place).
     "Websy tank battle won": DQHRSLocationData(0x17D, "Boingburg", 100, tank_id=0x01),
     "TODO_Tank_Battle_02 defeated": DQHRSLocationData(0x17E, "Boingburg", 100, tank_id=0x02),
     "TODO_Tank_Battle_03 defeated": DQHRSLocationData(0x17F, "Boingburg", 100, tank_id=0x03),
@@ -242,6 +240,91 @@ LOCATION_TABLE: dict[str, DQHRSLocationData] = {
     "TODO_Tank_Battle_22 defeated": DQHRSLocationData(0x19E, "Boingburg", 100, tank_id=0x22),
     "TODO_Tank_Battle_23 defeated": DQHRSLocationData(0x19F, "Boingburg", 100, tank_id=0x23),
     "TODO_Tank_Battle_24 defeated": DQHRSLocationData(0x1A0, "Boingburg", 100, tank_id=0x24),
+
+    # ───────────────────────────── ITEMS ───────────────────────────────────
+    "Get 1 Pompom": DQHRSLocationData(0x1A1, "Boingburg", 100, item_id=0x00), # addr : 0x0214181
+    "Get 1 Chest": DQHRSLocationData(0x1A2, "Boingburg", 100, item_id=0x01), # addr : 0x0214185
+    "Get 1 Catnip": DQHRSLocationData(0x1A3, "Boingburg", 100, item_id=0x02), # addr : 0x0214189
+    "Get 1 Rockbomb": DQHRSLocationData(0x1A4, "Boingburg", 100, item_id=0x03), # addr : 0x021418D
+    "Get 1 Spooklear Bomb": DQHRSLocationData(0x1A5, "Boingburg", 100, item_id=0x04), # addr : 0x0214191
+    "Get 1 Bombshell": DQHRSLocationData(0x1A6, "Boingburg", 100, item_id=0x05), # addr : 0x0214195
+    "Get 1 Obelisk": DQHRSLocationData(0x1A7, "Boingburg", 100, item_id=0x06), # addr : 0x0214199
+    "Get 1 Wooden Arrow": DQHRSLocationData(0x1A8, "Boingburg", 100, item_id=0x07), # addr : 0x021419D
+    "Get 1 Iron Arrow": DQHRSLocationData(0x1A9, "Boingburg", 100, item_id=0x08), # addr : 0x02141A1
+    "Get 1 Golden Arrow": DQHRSLocationData(0x1AA, "Boingburg", 100, item_id=0x09), # addr : 0x02141A5
+    "Get 1 Oaken Club": DQHRSLocationData(0x1AC, "Boingburg", 100, item_id=0x0A), # addr : 0x02141AD
+    "Get 1 Iron ball": DQHRSLocationData(0x1AD, "Boingburg", 100, item_id=0x0B), # addr : 0x02141B1
+    "Get 1 Irritaball": DQHRSLocationData(0x1AE, "Boingburg", 100, item_id=0x0C), # addr : 0x02141B5
+    "Get 1 Destructiball": DQHRSLocationData(0x1AF, "Boingburg", 100, item_id=0x0D), # addr : 0x02141B9
+    "Get 1 Girders": DQHRSLocationData(0x1B0, "Boingburg", 100, item_id=0x0E), # addr : 0x02141BD
+    "Get 1 Holy Water": DQHRSLocationData(0x1B1, "Boingburg", 100, item_id=0x0F), # addr : 0x02141C1
+    "Get 1 Boomerang": DQHRSLocationData(0x1B2, "Boingburg", 100, item_id=0x10), # addr : 0x02141C5
+    "Get 1 Edged Boomerang": DQHRSLocationData(0x1B3, "Boingburg", 100, item_id=0x11), # addr : 0x02141C9
+    "Get 1 BS-1 Crooze": DQHRSLocationData(0x1B4, "Boingburg", 100, item_id=0x12), # addr : 0x02141CD
+    "Get 1 BS-2 Blue Streak": DQHRSLocationData(0x1B5, "Boingburg", 100, item_id=0x13), # addr : 0x02141D1
+    "Get 1 BS-3 Slimahawk": DQHRSLocationData(0x1B6, "Boingburg", 100, item_id=0x14), # addr : 0x02141D5
+    "Get 1 Fire Water": DQHRSLocationData(0x1B7, "Boingburg", 100, item_id=0x15), # addr : 0x02141D9
+    "Get 1 Thousandweight": DQHRSLocationData(0x1B8, "Boingburg", 100, item_id=0x16), # addr : 0x02141DD
+    "Get 1 Chimaera Wing": DQHRSLocationData(0x1B9, "Boingburg", 100, item_id=0x17), # addr : 0x02141E1
+    "Get 1 Shuriken": DQHRSLocationData(0x1BA, "Boingburg", 100, item_id=0x18), # addr : 0x02141E5
+    "Get 1 Slime Knight": DQHRSLocationData(0x1BB, "Boingburg", 100, item_id=0x19), # addr : 0x02141E9
+    "Get 1 Steel Broadsword": DQHRSLocationData(0x1BC, "Boingburg", 100, item_id=0x1A), # addr : 0x02141ED
+    "Get 1 Miracle Sword": DQHRSLocationData(0x1BD, "Boingburg", 100, item_id=0x1B), # addr : 0x02141F1
+    "Get 1 Bastard Swords": DQHRSLocationData(0x1BE, "Boingburg", 100, item_id=0x1C), # addr : 0x02141F5
+    "Get 1 Metal King Swords": DQHRSLocationData(0x1BF, "Boingburg", 100, item_id=0x1D), # addr : 0x02141F9
+    "Get 1 Iron Shields": DQHRSLocationData(0x1C0, "Boingburg", 100, item_id=0x1E), # addr : 0x02141FD
+    "Get 1 Mirror Shields": DQHRSLocationData(0x1C1, "Boingburg", 100, item_id=0x1F), # addr : 0x0214201
+    "Get 1 Metal King Shields": DQHRSLocationData(0x1C2, "Boingburg", 100, item_id=0x20), # addr : 0x0214205
+    "Get 1 Medicinal Herbs": DQHRSLocationData(0x1C3, "Boingburg", 100, item_id=0x21), # addr : 0x0214209
+    "Get 1 Strong Medicines": DQHRSLocationData(0x1C4, "Boingburg", 100, item_id=0x22), # addr : 0x021420D
+    "Get 1 Special Medicines": DQHRSLocationData(0x1C5, "Boingburg", 100, item_id=0x23), # addr : 0x0214211
+    "Get 1 Goddess Statues": DQHRSLocationData(0x1C6, "Boingburg", 100, item_id=0x24), # addr : 0x0214215
+    "Get 1 Vulcan Guns": DQHRSLocationData(0x1C7, "Boingburg", 100, item_id=0x25), # addr : 0x0214219
+    "Get 1 Vulcan Pellets": DQHRSLocationData(0x1C8, "Boingburg", 100, item_id=0x26), # addr : 0x021421D
+    "Get 1 Vulcan Bullets": DQHRSLocationData(0x1C9, "Boingburg", 100, item_id=0x27), # addr : 0x0214221
+    "Get 1 Vulcan Shells": DQHRSLocationData(0x1CA, "Boingburg", 100, item_id=0x28), # addr : 0x0214225
+    "Get 1 Lightning Staves": DQHRSLocationData(0x1CB, "Boingburg", 100, item_id=0x29), # addr : 0x0214229
+    "Get 1 Hell Scythes": DQHRSLocationData(0x1CC, "Boingburg", 100, item_id=0x2A), # addr : 0x021422D
+    "Get 1 Chilli Peppers": DQHRSLocationData(0x1CD, "Boingburg", 100, item_id=0x2B), # addr : 0x0214231
+    "Get 1 Holy Crystals": DQHRSLocationData(0x1CE, "Boingburg", 100, item_id=0x2C), # addr : 0x0214235
+    "Get 1 Devil's Tail": DQHRSLocationData(0x1CF, "Boingburg", 100, item_id=0x2D), # addr : 0x0214239
+    "Get 1 Gold Bar": DQHRSLocationData(0x1D0, "Boingburg", 100, item_id=0x2E), # addr : 0x021423D
+    "Get 1 Toy Slime": DQHRSLocationData(0x1D1, "Boingburg", 100, item_id=0x2F), # addr : 0x0214241
+    "Get 1 Clap Trap": DQHRSLocationData(0x1D2, "Boingburg", 100, item_id=0x30), # addr : 0x0214245
+    "Get 1 Cloaking Device": DQHRSLocationData(0x1D3, "Boingburg", 100, item_id=0x31), # addr : 0x0214249
+    "Get 1 Kaboomamite": DQHRSLocationData(0x1D4, "Boingburg", 100, item_id=0x32), # addr : 0x021424D
+    "Get 1 Power Tablet": DQHRSLocationData(0x1D5, "Boingburg", 100, item_id=0x33), # addr : 0x0214251
+    "Get 1 Overdrive Tablet": DQHRSLocationData(0x1D6, "Boingburg", 100, item_id=0x34), # addr : 0x0214255
+    "Get 1 Weapon Tablet": DQHRSLocationData(0x1D7, "Boingburg", 100, item_id=0x35), # addr : 0x0214259
+    "Get 1 Orichalcum": DQHRSLocationData(0x1D8, "Boingburg", 100, item_id=0x36), # addr : 0x021425D
+    "Get 1 Orichalslimes Unlocked": DQHRSLocationData(0x1D9, "Boingburg", 100, item_id=0x37), # addr : 0x0214261
+    "Get 1 Meteorites Unlocked": DQHRSLocationData(0x1DA, "Boingburg", 100, item_id=0x38), # addr : 0x0214265
+    "Get 1 Kafrizzles Unlocked": DQHRSLocationData(0x1DB, "Boingburg", 100, item_id=0x39), # addr : 0x0214269
+    "Get 1 Hero Swords Unlocked": DQHRSLocationData(0x1DC, "Boingburg", 100, item_id=0x3A), # addr : 0x021426D
+
+    
+    # ─────────────────────────── TANK UPGRADES ──────────────────────────────
+    "HP Taster Upgrade unlocked": DQHRSLocationData(0x1DD, "Tootinschleimans_Tomb", 100, tank_id=0x25),
+    "A Little HP Upgrade unlocked": DQHRSLocationData(0x1DE, "Tootinschleimans_Tomb", 100, tank_id=0x26),
+    "A lot of HP Upgrade unlocked": DQHRSLocationData(0x1DF, "Tootinschleimans_Tomb", 100, tank_id=0x27),
+    "A Good Revamp Upgrade unlocked": DQHRSLocationData(0x1E0, "Tootinschleimans_Tomb", 100, tank_id=0x28),
+    "Straightforward HP Upgrade unlocked": DQHRSLocationData(0x1E1, "Tootinschleimans_Tomb", 100, tank_id=0x29),
+    "Muscly HP Upgrade unlocked": DQHRSLocationData(0x1E2, "Tootinschleimans_Tomb", 100, tank_id=0x2A),
+    "Zingy HP Upgrade unlocked": DQHRSLocationData(0x1E3, "Tootinschleimans_Tomb", 100, tank_id=0x2B),
+    "Mysterious HP Upgrade unlocked": DQHRSLocationData(0x1E4, "Tootinschleimans_Tomb", 100, tank_id=0x2C),
+    "Serious HP Upgrade unlocked": DQHRSLocationData(0x1E5, "Tootinschleimans_Tomb", 100, tank_id=0x2D),
+    "Lucky HP Upgrade unlocked": DQHRSLocationData(0x1E6, "Tootinschleimans_Tomb", 100, tank_id=0x2E),
+    "100st Rank HP Upgrade unlocked": DQHRSLocationData(0x1E7, "Tootinschleimans_Tomb", 100, tank_id=0x2F),
+    "Smart HP Upgrade unlocked": DQHRSLocationData(0x1E8, "Tootinschleimans_Tomb", 100, tank_id=0x30),
+    "Polish the Schleiman Upgrade unlocked": DQHRSLocationData(0x1E9, "Tootinschleimans_Tomb", 100, tank_id=0x31),
+    "Raging HP Upgrade unlocked": DQHRSLocationData(0x1EA, "Tootinschleimans_Tomb", 100, tank_id=0x32),
+    "Spiritual HP Upgrade unlocked": DQHRSLocationData(0x1EB, "Tootinschleimans_Tomb", 100, tank_id=0x33),
+    "The Schleiman Fort Upgrade unlocked": DQHRSLocationData(0x1EC, "Tootinschleimans_Tomb", 100, tank_id=0x34),
+    "Holy HP Upgrade unlocked": DQHRSLocationData(0x1ED, "Tootinschleimans_Tomb", 100, tank_id=0x35),
+    "Evolution Jump Upgrade unlocked": DQHRSLocationData(0x1EE, "Tootinschleimans_Tomb", 100, tank_id=0x36),
+    "Slimenian Miracle Upgrade unlocked": DQHRSLocationData(0x1EF, "Tootinschleimans_Tomb", 100, tank_id=0x37),
+    "Last HP Upgrade unlocked": DQHRSLocationData(0x1F0, "Tootinschleimans_Tomb", 100, tank_id=0x38),
+
 }
 
 # ── Helper: build name → id mapping ───────────────────────────────────────────
@@ -255,7 +338,7 @@ LOCATION_NAME_TO_ID: dict[str, int] = {
 # ── Goals ─────────────────────────────────────────────────────────────────────
 FINAL_BOSS_LOCATION_ID: int = LOCATION_NAME_TO_ID["Don Clawleone defeated"]
 
-# Les boss et monstres ont slime_id = 100 : on filtre donc sur < 100.
+# Bosses and monsters use slime_id = 100: we therefore filter on < 100.
 SLIME_LOCATION_IDS: frozenset[int] = frozenset(
     BASE_ID + data.id_offset for data in LOCATION_TABLE.values() if data.slime_id < 100
 )
@@ -267,28 +350,39 @@ SLIME_ID_TO_LOCATION_ID: dict[int, int] = {
     data.slime_id: BASE_ID + data.id_offset
     for data in LOCATION_TABLE.values()
 }
-# ATTENTION : tous les boss ET tous les monstres du bestiaire partagent le
-# même slime_id=100 (copié-collé lors de leur création). Le dict ci-dessus
-# n'en garde donc qu'UN SEUL par clé — client.py ne s'en sert heureusement
-# pas pour les boss (recherche par nom) ni pour le bestiaire (voir
-# MONSTER_ID_TO_LOCATION_ID ci-dessous), mais à corriger si un jour un autre
-# bout de code veut chercher une location "boss" ou "unlocked" par cette voie.
 
 # ── Helper: build monster_id → AP location id mapping ─────────────────────────
-# Miroir de SLIME_ID_TO_LOCATION_ID, mais pour le bestiaire. monster_id == -1
-# est le défaut pour toute location qui n'est pas un déblocage de monstre :
-# on l'exclut explicitement pour ne jamais associer -1 à une vraie location.
+# Mirror of SLIME_ID_TO_LOCATION_ID, but for the bestiary. monster_id == -1
+# is the default for any location that is not a monster unlock: we exclude it
+# explicitly so -1 is never associated with a real location.
 MONSTER_ID_TO_LOCATION_ID: dict[int, int] = {
     data.monster_id: BASE_ID + data.id_offset
     for data in LOCATION_TABLE.values()
     if data.monster_id != -1
 }
 
-# ─────────────────────────── COMBATS DE TANK ──────────────────────────────
+# ─────────────────────────── TANK BATTLES ────────────────────────────────
+# Tank battles use IDs 0x01-0x24.
 TANK_ID_TO_LOCATION_ID: dict[int, int] = {
     data.tank_id: BASE_ID + data.id_offset
     for data in LOCATION_TABLE.values()
-    if data.tank_id != -1
+    if 0x01 <= data.tank_id <= 0x24
+}
+
+# ─────────────────────────── TANK UPGRADES ───────────────────────────────
+# Upgrades use the same tank_id key, but in the 0x25-0x38 range.
+# We keep a separate mapping to avoid mixing the two mechanisms in client.py.
+TANK_UPGRADE_ID_TO_LOCATION_ID: dict[int, int] = {
+    data.tank_id: BASE_ID + data.id_offset
+    for data in LOCATION_TABLE.values()
+    if 0x25 <= data.tank_id <= 0x38
+}
+
+# ─────────────────────────── ITEMS ──────────────────────────────────────────
+ITEM_ID_TO_LOCATION_ID: dict[int, int] = {
+    data.item_id: BASE_ID + data.id_offset
+    for data in LOCATION_TABLE.values()
+    if data.item_id != -1
 }
 
 # ── Convenience: list all region names used ───────────────────────────────────

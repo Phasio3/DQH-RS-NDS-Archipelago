@@ -16,10 +16,6 @@
 #
 # The class docstring becomes the description shown in the web UI and YAML docs.
 # Keep it short and player-facing — no internal notes.
-#
-# TODO: remove options you do not need.
-# TODO: add options that fit the game's design.
-# TODO: make sure every option that affects logic is also referenced in rules.py.
 
 from dataclasses import dataclass
 from Options import Toggle, DefaultOnToggle, Choice, Range, PerGameCommonOptions

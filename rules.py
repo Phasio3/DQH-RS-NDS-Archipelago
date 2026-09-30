@@ -12,10 +12,10 @@
 #   set_rule(location_or_entrance, rule_fn)  → replaces the rule entirely
 #
 # Note: rules run during generation, not at runtime.  They shape what the generator
-#       considers logically reachable.  The client enforces nothing here.
+# considers logically reachable.  The client enforces nothing here.
 
-from worlds.generic.Rules import set_rule
-
+from worlds.generic.Rules import set_rule, add_rule
+from .locations import LOCATION_TABLE
 from .options import Goal
 
 # TYPE_CHECKING guard keeps the import from creating a real circular dependency.
@@ -27,11 +27,11 @@ if TYPE_CHECKING:
 # Zone (region name) -> item that opens the door to it.
 ZONE_TO_ITEM: dict[str, str] = {
     "Tootinschleimans_Tomb":   "Access_Tootinschleiman_Tomb",
-    "Mt_Krakatroda":           "Access_Mt_Krakatroda",
-    "Backwoods":               "Access_Backwoods",
-    "Callmigh_Bluff":          "Access_Callmigh_Bluff",
-    "Flucifers_Necropolis":    "Access_Flucifer_Necropolis",
-    "Flying_Clawtress":        "Access_Flying_Clawtress",
+    "Mt_Krakatroda":            "Access_Mt_Krakatroda",
+    "Backwoods":                "Access_Backwoods",
+    "Callmigh_Bluff":            "Access_Callmigh_Bluff",
+    "Flucifers_Necropolis":      "Access_Flucifer_Necropolis",
+    "Flying_Clawtress":          "Access_Flying_Clawtress",
 }
 ACCESS_ITEMS: list[str] = list(ZONE_TO_ITEM.values())
 
@@ -46,6 +46,17 @@ def set_rules(world: "DQHRSWorld") -> None:
     multiworld = world.multiworld
     player = world.player
 
+    # ── Tank upgrades ─────────────────────────────────────────────────────────
+    for loc_name, loc_data in LOCATION_TABLE.items():
+        if 0x25 <= loc_data.tank_id <= 0x38:
+            add_rule(
+                multiworld.get_location(loc_name, player),
+                lambda state: state.has_all(
+                    {"Access_Flying_Clawtress", "Access_Tootinschleiman_Tomb"},
+                    player,
+                ),
+            )
+
     # ── Entrance rules: one locked door per zone ───────────────────────────────
     for zone_name, item_name in ZONE_TO_ITEM.items():
         set_rule(
@@ -54,14 +65,17 @@ def set_rules(world: "DQHRSWorld") -> None:
         )
 
     # ── Goal ───────────────────────────────────────────────────────────────────
-    # "Victory" is an EVENT location (no real id) created in __init__.py. The
-    # generator considers the game won when the player can "collect" it.
+    # "Victory" is an EVENT location (no real id) created in __init__.py.
+    # The generator considers the game won when the player can "collect" it.
     # Each goal only changes the rule that decides WHEN Victory becomes reachable.
     victory = multiworld.get_location("Victory", player)
 
     if world.options.goal == Goal.option_defeat_final_boss:
         # Being able to enter the final boss's zone.
-        set_rule(victory, lambda state: state.has(FINAL_BOSS_ACCESS_ITEM, player))
+        set_rule(
+            victory,
+            lambda state: state.has(FINAL_BOSS_ACCESS_ITEM, player)
+        )
 
     elif world.options.goal == Goal.option_save_all_slimes:
         # Every zone must be enterable (all 100 slimes are spread over them) AND all
